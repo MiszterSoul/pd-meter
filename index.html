@@ -14,28 +14,13 @@
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
       <div class="topbar"><strong>PD Meter</strong><button id="flip" class="icon" disabled aria-label="Kamera váltása">↺</button></div>
-
-      <div class="guide" aria-hidden="true">
-        <div class="face-ring">
-          <div class="eye-line">
-            <i></i><span>SZEMEK IDE</span><i></i>
-          </div>
-        </div>
-        <div class="card-guide">
-          <span>BANKKÁRTYA</span>
-          <small>érintsd az arcodhoz</small>
-        </div>
-        <div class="depth-hint">A kártya ne legyen előrébb: tartsd a halántékodhoz vagy az arcod oldalához.</div>
-      </div>
-
-      <div id="message" class="message">Nyomd meg az indítást. A szemed kerüljön a jelölésekhez, a kártyát pedig tartsd az arcod oldalához.</div>
+      <div id="message" class="message">Nyomd meg az indítást, majd nézz a kamerába egy bankkártyával az arcod mellett.</div>
 
       <div id="loader" class="loader hidden" role="status" aria-live="polite">
         <div class="spinner"></div>
         <strong id="loaderTitle">Felismerők előkészítése</strong>
         <span id="loaderStep">Indítás…</span>
         <small id="loaderDetail">A kamera közben már működik. Az első indítás hosszabb lehet.</small>
-        <div class="progress indeterminate"><i id="progressBar"></i></div>
         <small id="loaderElapsed">Eltelt idő: 0 mp</small>
       </div>
 
@@ -43,15 +28,15 @@
         <div class="pd"><span>PD</span><strong id="pd">–</strong><small>mm</small></div>
         <div class="split"><span>jobb <b id="rightPd">–</b></span><span>bal <b id="leftPd">–</b></span></div>
         <div id="quality" class="quality">Kamera nincs elindítva</div>
-        <div class="average">Átlag: <b id="average">–</b> mm · <span id="sampleCount">0 mérés</span></div>
+        <div class="average">Aktuális átlag: <b id="average">–</b> mm · <span id="sampleCount">aktuális oldalbetöltés: 0</span></div>
       </section>
       <button id="start" class="start">Kamera indítása</button>
       <button id="stop" class="stop hidden">Leállítás</button>
     </div>
     <details class="info">
       <summary>Használat és pontosság</summary>
-      <p>A kártyának nem kell pontosan a szemed magasságában lennie. Az a fontos, hogy ne legyen közelebb a kamerához: nyomd finoman a halántékodhoz vagy az arcod oldalához. A teljes kártya látszódjon, és nézz egyenesen a kamerába.</p>
-      <button id="clear">Mentett átlag törlése</button>
+      <p>Tarts szabványos, 85,60 mm széles bankkártyát közvetlenül az arcod mellé, a szemeiddel azonos mélységben. Ne tartsd a kamera felé előrébb. Az átlag csak erre az oldalbetöltésre vonatkozik.</p>
+      <button id="clear">Aktuális átlag törlése</button>
     </details>
   </main>
   <script type="module" src="app.js"></script>
