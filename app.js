@@ -5,11 +5,13 @@ const video=$('video'),overlay=$('overlay'),ctx=overlay.getContext('2d');
 const processCanvas=document.createElement('canvas'),pctx=processCanvas.getContext('2d',{willReadFrequently:true});
 const CARD_MM=85.6,STORE='pd-live-samples-v2';
 let stream=null,facing='user',landmarker=null,running=false,lastFace=0,lastCard=0,face=null,card=null,samples=[],recent=[],lastAccepted=0,audio=null;
+let progressTimer=null,progressValue=0;
 
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
 const median=a=>{const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)]};
 const mapPoint=p=>({x:p.x*overlay.width/processCanvas.width,y:p.y*overlay.height/processCanvas.height});
+const yieldUi=()=>new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
 
 function loadSamples(){try{samples=JSON.parse(localStorage.getItem(STORE)||'[]')}catch{samples=[]}renderAverage()}
 function renderAverage(){
@@ -20,29 +22,59 @@ function renderAverage(){
 function beep(){
   try{audio??=new AudioContext();const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(.001,audio.currentTime);g.gain.exponentialRampToValueAtTime(.15,audio.currentTime+.02);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.18);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.2)}catch{}
 }
+function showLoader(step='Indítás…',value=4){
+  clearInterval(progressTimer);progressValue=value;
+  $('loader').classList.remove('hidden');$('loaderStep').textContent=step;
+  setProgress(value);
+  progressTimer=setInterval(()=>{
+    if(progressValue<88)setProgress(progressValue+Math.max(0.3,(88-progressValue)*0.025));
+  },180);
+}
+function setProgress(value,step){
+  progressValue=Math.max(progressValue,Math.min(100,value));
+  $('progressBar').style.width=`${progressValue}%`;
+  $('progressValue').textContent=`${Math.round(progressValue)}%`;
+  if(step)$('loaderStep').textContent=step;
+}
+async function hideLoader(){
+  clearInterval(progressTimer);setProgress(100,'Kész');await new Promise(r=>setTimeout(r,260));$('loader').classList.add('hidden');
+}
+function failLoader(message){clearInterval(progressTimer);$('loader').classList.add('hidden');$('message').textContent=message}
+
 async function waitForCv(){
   const start=Date.now();
-  while(!(window.cv?.Mat)){if(Date.now()-start>15000)throw new Error('Az OpenCV nem töltődött be.');await new Promise(r=>setTimeout(r,100))}
+  while(!(window.cv?.Mat)){
+    if(Date.now()-start>20000)throw new Error('Az OpenCV nem töltődött be. Ellenőrizd a kapcsolatot, majd próbáld újra.');
+    await new Promise(r=>setTimeout(r,100));
+  }
 }
 async function loadModels(){
-  $('message').textContent='Felismerők betöltése…';
-  await waitForCv();
+  showLoader('OpenCV betöltése…',8);await yieldUi();
+  await waitForCv();setProgress(32,'OpenCV kész');await yieldUi();
   if(!landmarker){
+    setProgress(42,'MediaPipe környezet betöltése…');await yieldUi();
     const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
+    setProgress(68,'Arc- és pupillafelismerő modell betöltése…');await yieldUi();
     landmarker=await FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numFaces:1});
   }
+  setProgress(90,'Kamera előkészítése…');await yieldUi();
 }
 async function start(){
   try{
-    $('start').disabled=true;await loadModels();stop(false);
+    $('start').disabled=true;
+    await loadModels();
+    stop(false);
+    setProgress(94,'Kameraengedély kérése…');
     stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:false});
+    setProgress(97,'Kamerakép indítása…');
     video.srcObject=stream;await video.play();
-    $('.noop');
     document.querySelector('.viewer').classList.toggle('environment',facing==='environment');
     $('start').classList.add('hidden');$('stop').classList.remove('hidden');$('flip').disabled=false;
     $('message').textContent='Tartsd a bankkártyát az arcod mellé, a szemeiddel azonos síkban.';
-    running=true;recent=[];requestAnimationFrame(loop);
-  }catch(e){$('message').textContent=`Nem indítható: ${e.message}`;$('start').disabled=false}
+    running=true;recent=[];
+    await hideLoader();
+    requestAnimationFrame(loop);
+  }catch(e){failLoader(`Nem indítható: ${e.message}`);$('start').disabled=false}
 }
 function stop(show=true){
   running=false;stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;
