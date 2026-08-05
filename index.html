@@ -2,99 +2,42 @@
 <html lang="hu">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <meta name="description" content="Pupillatávolság becslése kamerával és bankkártyás kalibrációval. A feldolgozás helyben történik.">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#05070d">
   <title>PD Meter</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <div><p class="eyebrow">Helyi képfeldolgozás</p><h1>Pupillatávolság-mérő</h1></div>
-      <span class="privacy">A kép nem hagyja el az eszközt</span>
-    </header>
-
-    <section class="card intro">
-      <h2>Használat</h2>
-      <ol>
-        <li>Tarts szabványos bankkártyát a homlokodhoz vagy az arcod mellé, a szemek síkjában.</li>
-        <li>Nézz egyenesen a kamerába, és készíts képet jó fényben.</li>
-        <li>Jelöld meg a kártya négy sarkát. A pupillapontokat ellenőrizd, és szükség esetén húzd a helyükre.</li>
-      </ol>
-      <p class="note">A mérés tájékoztató jellegű. Progresszív, prizmatikus vagy erős dioptriájú lencséhez optikai centrálás szükséges.</p>
-    </section>
-
-    <section class="card camera-card">
-      <div class="toolbar">
-        <button id="startCamera" class="primary">Kamera indítása</button>
-        <button id="stopCamera" disabled>Kamera leállítása</button>
-        <button id="switchCamera" disabled>Kamera váltása</button>
-        <label class="file-button">Kép feltöltése<input id="fileInput" type="file" accept="image/*"></label>
+  <main class="app">
+    <div class="viewer">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="topbar">
+        <strong>PD Meter</strong>
+        <button id="flip" class="icon" disabled aria-label="Kamera váltása">↺</button>
       </div>
-
-      <div id="stage" class="stage" aria-label="Mérési kép">
-        <video id="video" playsinline muted></video>
-        <canvas id="canvas"></canvas>
-        <div id="stageHint" class="stage-hint">Indítsd el a kamerát vagy tölts fel egy képet.</div>
+      <div id="guide" class="guide">
+        <div class="face-ring"></div>
+        <div class="card-guide">BANKKÁRTYA</div>
       </div>
-
-      <div class="toolbar bottom">
-        <button id="capture" class="primary" disabled>Kép készítése</button>
-        <button id="retake" disabled>Új kép</button>
-        <button id="analyze" disabled>Arc felismerése</button>
-      </div>
-      <p id="status" class="status">A MediaPipe modell az első elemzéskor töltődik be.</p>
-    </section>
-
-    <section id="calibration" class="card hidden">
-      <div class="section-title">
-        <div><p class="eyebrow">1. lépés</p><h2>Bankkártya kalibráció</h2></div>
-        <button id="resetCard">Pontok törlése</button>
-      </div>
-      <p>Koppints sorrendben a kártya négy sarkára: bal felső, jobb felső, jobb alsó, bal alsó. A pontok utána húzhatók.</p>
-      <div class="choice-row">
-        <label><input type="radio" name="reference" value="card" checked> Bankkártya, 85,60 mm</label>
-        <label><input type="radio" name="reference" value="custom"> Saját referencia</label>
-        <label id="customLengthWrap" class="inline-input hidden">Hossz: <input id="customLength" type="number" min="10" max="300" step="0.1" value="100"> mm</label>
-      </div>
-      <p id="cardState" class="status">0/4 sarok megadva.</p>
-    </section>
-
-    <section id="results" class="card hidden">
-      <div class="section-title">
-        <div><p class="eyebrow">2. lépés</p><h2>Eredmény</h2></div>
-        <button id="resetEyes">Automatikus pontok</button>
-      </div>
-      <p>Húzd a két pupillapontot pontosan a pupillák közepére. A zöld vonal és a méret azonnal követi a pontokat.</p>
-
-      <div class="metrics">
-        <article><span>Teljes PD</span><strong id="pdTotal">–</strong><small>mm</small></article>
-        <article><span>Jobb szem</span><strong id="pdRight">–</strong><small>mm</small></article>
-        <article><span>Bal szem</span><strong id="pdLeft">–</strong><small>mm</small></article>
-      </div>
-
-      <div class="quality"><span>Mérési állapot</span><strong id="qualityText">Kalibráció szükséges</strong></div>
-      <p id="saveState" class="status">A megfelelő mérés automatikusan mentésre kerül.</p>
-      <p class="note">Szemből nézett képen a képernyő bal oldalán látható szem a saját jobb szemed.</p>
-    </section>
-
-    <section class="card">
-      <div class="section-title">
-        <div><p class="eyebrow">Korábbi mérések</p><h2>Átlag</h2></div>
-        <button id="clearHistory">Mérések törlése</button>
-      </div>
-      <div class="metrics">
-        <article><span>Átlagos teljes PD</span><strong id="avgTotal">–</strong><small>mm</small></article>
-        <article><span>Átlagos jobb</span><strong id="avgRight">–</strong><small>mm</small></article>
-        <article><span>Átlagos bal</span><strong id="avgLeft">–</strong><small>mm</small></article>
-      </div>
-      <p id="historyState" class="status">Nincs mentett mérés.</p>
-    </section>
-
-    <footer><p>PD Meter · nyílt forrású, kliensoldali mérőeszköz</p></footer>
+      <div id="message" class="message">Nyomd meg az indítást, majd nézz a kamerába egy bankkártyával az arcod mellett.</div>
+      <section class="readout">
+        <div class="pd"><span>PD</span><strong id="pd">–</strong><small>mm</small></div>
+        <div class="split"><span>jobb <b id="rightPd">–</b></span><span>bal <b id="leftPd">–</b></span></div>
+        <div id="quality" class="quality">Kamera nincs elindítva</div>
+        <div class="average">Átlag: <b id="average">–</b> mm · <span id="sampleCount">0 mérés</span></div>
+      </section>
+      <button id="start" class="start">Kamera indítása</button>
+      <button id="stop" class="stop hidden">Leállítás</button>
+    </div>
+    <details class="info">
+      <summary>Használat és pontosság</summary>
+      <p>Tarts szabványos, 85,60 mm széles bankkártyát közvetlenül az arcod mellé, a szemeiddel azonos síkban. Nézz egyenesen a kamerába. A mérés automatikusan indul, amikor az arc és a kártya egyszerre stabilan látszik.</p>
+      <button id="clear">Mentett átlag törlése</button>
+    </details>
   </main>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
