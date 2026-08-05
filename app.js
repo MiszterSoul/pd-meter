@@ -1,62 +1,139 @@
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/+esm';
 
-const $=id=>document.getElementById(id), video=$('video'), canvas=$('canvas'), ctx=canvas.getContext('2d'), stage=$('stage'), statusEl=$('status'), stageHint=$('stageHint');
-const CARD_WIDTH_MM=85.6, STORAGE_KEY='pd-meter-measurements-v1';
-let stream=null,facingMode='user',imageReady=false,faceLandmarker=null,autoEyes=null,eyes=null,nose=null,cardPoints=[],dragTarget=null,sourceImage=null,measurementSaved=false,saveTimer=null;
+const $=id=>document.getElementById(id);
+const video=$('video'),overlay=$('overlay'),ctx=overlay.getContext('2d');
+const processCanvas=document.createElement('canvas'),pctx=processCanvas.getContext('2d',{willReadFrequently:true});
+const CARD_MM=85.6,STORE='pd-live-samples-v2';
+let stream=null,facing='user',landmarker=null,running=false,lastFace=0,lastCard=0,face=null,card=null,samples=[],recent=[],lastAccepted=0,audio=null;
 
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-const avg=points=>({x:points.reduce((s,p)=>s+p.x,0)/points.length,y:points.reduce((s,p)=>s+p.y,0)/points.length});
-const setStatus=text=>statusEl.textContent=text;
-function canvasPoint(e){const r=canvas.getBoundingClientRect(),p=e.touches?.[0]||e.changedTouches?.[0]||e;return{x:(p.clientX-r.left)*canvas.width/r.width,y:(p.clientY-r.top)*canvas.height/r.height};}
-function near(p,t,r=28){return t&&dist(p,t)<=r*(canvas.width/canvas.clientWidth);}
+const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
+const median=a=>{const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)]};
+const mapPoint=p=>({x:p.x*overlay.width/processCanvas.width,y:p.y*overlay.height/processCanvas.height});
 
-async function startCamera(){
-  stopCamera(false);
+function loadSamples(){try{samples=JSON.parse(localStorage.getItem(STORE)||'[]')}catch{samples=[]}renderAverage()}
+function renderAverage(){
+  if(!samples.length){$('average').textContent='–';$('sampleCount').textContent='0 mérés';return}
+  $('average').textContent=mean(samples.map(x=>x.total)).toFixed(1);
+  $('sampleCount').textContent=`${samples.length} mérés`;
+}
+function beep(){
+  try{audio??=new AudioContext();const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(.001,audio.currentTime);g.gain.exponentialRampToValueAtTime(.15,audio.currentTime+.02);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.18);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.2)}catch{}
+}
+async function waitForCv(){
+  const start=Date.now();
+  while(!(window.cv?.Mat)){if(Date.now()-start>15000)throw new Error('Az OpenCV nem töltődött be.');await new Promise(r=>setTimeout(r,100))}
+}
+async function loadModels(){
+  $('message').textContent='Felismerők betöltése…';
+  await waitForCv();
+  if(!landmarker){
+    const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
+    landmarker=await FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numFaces:1});
+  }
+}
+async function start(){
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode,width:{ideal:1920},height:{ideal:1080}},audio:false});
-    video.srcObject=stream; await video.play(); video.hidden=false; canvas.style.position='absolute'; stageHint.classList.add('hidden');
-    $('capture').disabled=false; $('switchCamera').disabled=false; $('stopCamera').disabled=false; $('retake').disabled=true; $('analyze').disabled=true;
-    setStatus('Tartsd a kártyát az arcod síkjában, nézz a kamerába, majd készíts képet.');
-  }catch(error){setStatus(`A kamera nem indítható: ${error.message}`);}
+    $('start').disabled=true;await loadModels();stop(false);
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:false});
+    video.srcObject=stream;await video.play();
+    $('.noop');
+    document.querySelector('.viewer').classList.toggle('environment',facing==='environment');
+    $('start').classList.add('hidden');$('stop').classList.remove('hidden');$('flip').disabled=false;
+    $('message').textContent='Tartsd a bankkártyát az arcod mellé, a szemeiddel azonos síkban.';
+    running=true;recent=[];requestAnimationFrame(loop);
+  }catch(e){$('message').textContent=`Nem indítható: ${e.message}`;$('start').disabled=false}
 }
-function stopCamera(showMessage=true){
-  stream?.getTracks().forEach(t=>t.stop()); stream=null; video.srcObject=null;
-  $('capture').disabled=true; $('switchCamera').disabled=true; $('stopCamera').disabled=true;
-  if(showMessage){video.hidden=true; stageHint.classList.remove('hidden'); stageHint.textContent='A kamera leállítva.'; setStatus('A kamera leállítva.');}
+function stop(show=true){
+  running=false;stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;
+  $('start').classList.remove('hidden');$('stop').classList.add('hidden');$('start').disabled=false;$('flip').disabled=true;
+  if(show){$('quality').textContent='Kamera leállítva';$('message').textContent='Nyomd meg az indítást az új méréshez.'}
 }
-async function switchCamera(){facingMode=facingMode==='user'?'environment':'user';await startCamera();}
-function sizeCanvas(w,h){canvas.width=w;canvas.height=h;canvas.style.position='relative';stage.style.minHeight='0';}
-function resetMeasurement(){cardPoints=[];autoEyes=null;eyes=null;nose=null;dragTarget=null;measurementSaved=false;clearTimeout(saveTimer);$('calibration').classList.add('hidden');$('results').classList.add('hidden');$('saveState').textContent='A megfelelő mérés automatikusan mentésre kerül.';updateCardState();}
-function capture(){
-  if(!video.videoWidth)return; sizeCanvas(video.videoWidth,video.videoHeight); ctx.save(); if(facingMode==='user'){ctx.translate(canvas.width,0);ctx.scale(-1,1);} ctx.drawImage(video,0,0,canvas.width,canvas.height);ctx.restore();
-  sourceImage=ctx.getImageData(0,0,canvas.width,canvas.height);imageReady=true;video.hidden=true;stopCamera(false);resetMeasurement();redraw();
-  $('capture').disabled=true;$('retake').disabled=false;$('analyze').disabled=false;setStatus('Kép elkészült. Indítsd el az arcfelismerést.');
-}
-function loadFile(file){if(!file)return;const img=new Image();img.onload=()=>{const max=2200,s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));sizeCanvas(Math.round(img.naturalWidth*s),Math.round(img.naturalHeight*s));ctx.drawImage(img,0,0,canvas.width,canvas.height);sourceImage=ctx.getImageData(0,0,canvas.width,canvas.height);imageReady=true;video.hidden=true;stopCamera(false);resetMeasurement();redraw();stageHint.classList.add('hidden');$('retake').disabled=false;$('analyze').disabled=false;URL.revokeObjectURL(img.src);setStatus('Kép betöltve. Indítsd el az arcfelismerést.');};img.src=URL.createObjectURL(file);}
-async function ensureModel(){if(faceLandmarker)return;setStatus('Arcfelismerő modell betöltése…');const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');faceLandmarker=await FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'GPU'},runningMode:'IMAGE',numFaces:1});}
-async function analyze(){
-  if(!imageReady)return;
-  try{await ensureModel();const bitmap=await createImageBitmap(new ImageData(sourceImage,canvas.width,canvas.height)),result=faceLandmarker.detect(bitmap);bitmap.close();const lm=result.faceLandmarks?.[0];if(!lm){setStatus('Nem találtam arcot. Készíts élesebb, szemből készült képet jobb fényben.');return;}const px=p=>({x:p.x*canvas.width,y:p.y*canvas.height});const a=avg([468,469,470,471,472].map(i=>px(lm[i]))),b=avg([473,474,475,476,477].map(i=>px(lm[i]))),ordered=[a,b].sort((p,q)=>p.x-q.x);autoEyes={left:{...ordered[0]},right:{...ordered[1]}};eyes=structuredClone(autoEyes);nose=px(lm[168]);$('calibration').classList.remove('hidden');$('results').classList.remove('hidden');setStatus('Arc felismerve. Jelöld meg a referencia négy sarkát.');redraw();updateResults();}catch(error){setStatus(`Az elemzés sikertelen: ${error.message}`);}
-}
-function drawPoint(p,color,label){const r=Math.max(7,canvas.width/170);ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.lineWidth=Math.max(2,canvas.width/700);ctx.strokeStyle='#fff';ctx.stroke();ctx.font=`600 ${Math.max(14,canvas.width/70)}px system-ui`;ctx.fillStyle='#fff';ctx.fillText(label,p.x+r+5,p.y-r-2);}
-function referenceLength(){return document.querySelector('input[name="reference"]:checked').value==='card'?CARD_WIDTH_MM:Number($('customLength').value);}
-function scaleMmPerPx(){if(cardPoints.length!==4)return null;const top=dist(cardPoints[0],cardPoints[1]),bottom=dist(cardPoints[3],cardPoints[2]),width=(top+bottom)/2;return width>0?referenceLength()/width:null;}
-function currentMeasurement(){const scale=scaleMmPerPx();if(!scale||!eyes)return null;const total=dist(eyes.left,eyes.right)*scale,centerX=nose?.x??(eyes.left.x+eyes.right.x)/2,right=Math.abs(centerX-eyes.left.x)*scale,left=Math.abs(eyes.right.x-centerX)*scale;const top=dist(cardPoints[0],cardPoints[1]),bottom=dist(cardPoints[3],cardPoints[2]),skew=Math.abs(top-bottom)/((top+bottom)/2);return{total,right,left,skew};}
-function redraw(){if(!sourceImage)return;ctx.putImageData(sourceImage,0,0);if(cardPoints.length){ctx.lineWidth=Math.max(3,canvas.width/500);ctx.strokeStyle='#f59e0b';ctx.beginPath();cardPoints.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));if(cardPoints.length===4)ctx.closePath();ctx.stroke();cardPoints.forEach((p,i)=>drawPoint(p,'#f59e0b',String(i+1)));}if(eyes){const m=currentMeasurement();ctx.strokeStyle='#22c55e';ctx.lineWidth=Math.max(4,canvas.width/400);ctx.beginPath();ctx.moveTo(eyes.left.x,eyes.left.y);ctx.lineTo(eyes.right.x,eyes.right.y);ctx.stroke();if(m){const mid={x:(eyes.left.x+eyes.right.x)/2,y:(eyes.left.y+eyes.right.y)/2};const text=`${m.total.toFixed(1)} mm`;ctx.font=`700 ${Math.max(18,canvas.width/55)}px system-ui`;const w=ctx.measureText(text).width;ctx.fillStyle='rgba(3,7,18,.82)';ctx.fillRect(mid.x-w/2-10,mid.y-42,w+20,32);ctx.fillStyle='#fff';ctx.fillText(text,mid.x-w/2,mid.y-17);}drawPoint(eyes.left,'#22c55e','P');drawPoint(eyes.right,'#22c55e','P');}if(nose){ctx.setLineDash([12,10]);ctx.strokeStyle='#60a5fa';ctx.lineWidth=Math.max(2,canvas.width/700);ctx.beginPath();ctx.moveTo(nose.x,Math.max(0,nose.y-canvas.height*.12));ctx.lineTo(nose.x,Math.min(canvas.height,nose.y+canvas.height*.13));ctx.stroke();ctx.setLineDash([]);}}
-function updateCardState(){$('cardState').textContent=`${cardPoints.length}/4 sarok megadva${cardPoints.length===4?' – kalibráció kész.':'.'}`;updateResults();}
-function validMeasurement(m){return m&&m.total>=50&&m.total<=80&&m.skew<=.12&&Math.abs(m.right-m.left)<=6;}
-function updateResults(){
-  const m=currentMeasurement();if(!m){['pdTotal','pdRight','pdLeft'].forEach(id=>$(id).textContent='–');$('qualityText').textContent='Kalibráció szükséges';redraw();return;}
-  $('pdTotal').textContent=m.total.toFixed(1);$('pdRight').textContent=m.right.toFixed(1);$('pdLeft').textContent=m.left.toFixed(1);
-  let quality='Mérés kész';if(m.total<50||m.total>80)quality='Szokatlan eredmény – ellenőrizd a pontokat';else if(m.skew>.12)quality='A referencia perspektívája túl nagy';else if(Math.abs(m.right-m.left)>6)quality='Ellenőrizd az orr-középvonalat';$('qualityText').textContent=quality;redraw();
-  clearTimeout(saveTimer);if(validMeasurement(m)&&!measurementSaved)saveTimer=setTimeout(()=>saveMeasurement(m),900);
-}
-function playSuccess(){try{const ac=new (window.AudioContext||window.webkitAudioContext)(),o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.exponentialRampToValueAtTime(990,ac.currentTime+.16);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.24);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+.25);}catch{}}
-function getHistory(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch{return[];}}
-function saveMeasurement(m){const list=getHistory();list.push({total:+m.total.toFixed(1),right:+m.right.toFixed(1),left:+m.left.toFixed(1),time:Date.now()});localStorage.setItem(STORAGE_KEY,JSON.stringify(list.slice(-30)));measurementSaved=true;$('saveState').textContent='Mérés automatikusan elmentve.';playSuccess();renderHistory();}
-function renderHistory(){const list=getHistory();if(!list.length){$('avgTotal').textContent=$('avgRight').textContent=$('avgLeft').textContent='–';$('historyState').textContent='Nincs mentett mérés.';return;}const mean=k=>list.reduce((s,x)=>s+x[k],0)/list.length;$('avgTotal').textContent=mean('total').toFixed(1);$('avgRight').textContent=mean('right').toFixed(1);$('avgLeft').textContent=mean('left').toFixed(1);$('historyState').textContent=`${list.length} mentett mérés átlaga. Legfeljebb az utolsó 30 mérés marad meg ezen az eszközön.`;}
-function pointerDown(e){if(!imageReady)return;const p=canvasPoint(e);if(eyes&&near(p,eyes.left))dragTarget={type:'eye',key:'left'};else if(eyes&&near(p,eyes.right))dragTarget={type:'eye',key:'right'};else{const i=cardPoints.findIndex(cp=>near(p,cp));if(i>=0)dragTarget={type:'card',index:i};else if(cardPoints.length<4){cardPoints.push(p);updateCardState();redraw();}}if(dragTarget)e.preventDefault();}
-function pointerMove(e){if(!dragTarget)return;e.preventDefault();measurementSaved=false;$('saveState').textContent='A módosított mérés automatikusan mentésre kerül.';const p=canvasPoint(e);if(dragTarget.type==='eye')eyes[dragTarget.key]=p;else cardPoints[dragTarget.index]=p;redraw();updateResults();}
-function pointerUp(){dragTarget=null;}
+async function flip(){facing=facing==='user'?'environment':'user';stop(false);await start()}
 
-$('startCamera').addEventListener('click',startCamera);$('stopCamera').addEventListener('click',()=>stopCamera(true));$('switchCamera').addEventListener('click',switchCamera);$('capture').addEventListener('click',capture);$('retake').addEventListener('click',()=>{resetMeasurement();sourceImage=null;imageReady=false;ctx.clearRect(0,0,canvas.width,canvas.height);startCamera();});$('analyze').addEventListener('click',analyze);$('fileInput').addEventListener('change',e=>loadFile(e.target.files[0]));$('resetCard').addEventListener('click',()=>{cardPoints=[];measurementSaved=false;updateCardState();redraw();});$('resetEyes').addEventListener('click',()=>{if(autoEyes){eyes=structuredClone(autoEyes);measurementSaved=false;redraw();updateResults();}});$('clearHistory').addEventListener('click',()=>{localStorage.removeItem(STORAGE_KEY);renderHistory();});document.querySelectorAll('input[name="reference"]').forEach(el=>el.addEventListener('change',()=>{$('customLengthWrap').classList.toggle('hidden',el.value!=='custom'||!el.checked);measurementSaved=false;updateResults();}));$('customLength').addEventListener('input',()=>{measurementSaved=false;updateResults();});canvas.addEventListener('pointerdown',pointerDown);canvas.addEventListener('pointermove',pointerMove);canvas.addEventListener('pointerup',pointerUp);canvas.addEventListener('pointercancel',pointerUp);canvas.addEventListener('pointerleave',pointerUp);window.addEventListener('beforeunload',()=>stopCamera(false));renderHistory();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+function resize(){
+  const dpr=Math.min(devicePixelRatio||1,2),w=Math.round(innerWidth*dpr),h=Math.round(innerHeight*dpr);
+  if(overlay.width!==w||overlay.height!==h){overlay.width=w;overlay.height=h}
+  const pw=640,ph=Math.round(pw*h/w);if(processCanvas.width!==pw||processCanvas.height!==ph){processCanvas.width=pw;processCanvas.height=ph}
+}
+function drawVideoCover(){
+  const sw=video.videoWidth,sh=video.videoHeight,dw=processCanvas.width,dh=processCanvas.height;
+  const scale=Math.max(dw/sw,dh/sh),cw=dw/scale,ch=dh/scale,sx=(sw-cw)/2,sy=(sh-ch)/2;
+  pctx.save();pctx.clearRect(0,0,dw,dh);
+  if(facing==='user'){pctx.translate(dw,0);pctx.scale(-1,1)}
+  pctx.drawImage(video,sx,sy,cw,ch,0,0,dw,dh);pctx.restore();
+}
+function detectFace(now){
+  const result=landmarker.detectForVideo(processCanvas,now),lm=result.faceLandmarks?.[0];
+  if(!lm){face=null;return}
+  const px=i=>({x:lm[i].x*processCanvas.width,y:lm[i].y*processCanvas.height});
+  const avgPts=ids=>({x:mean(ids.map(i=>px(i).x)),y:mean(ids.map(i=>px(i).y))});
+  const a=avgPts([468,469,470,471,472]),b=avgPts([473,474,475,476,477]);
+  const eyes=[a,b].sort((x,y)=>x.x-y.x);
+  face={left:eyes[0],right:eyes[1],nose:px(168)};
+}
+function orderQuad(points){
+  const sum=points.map(p=>p.x+p.y),diff=points.map(p=>p.y-p.x);
+  return [points[sum.indexOf(Math.min(...sum))],points[diff.indexOf(Math.min(...diff))],points[sum.indexOf(Math.max(...sum))],points[diff.indexOf(Math.max(...diff))]];
+}
+function detectCard(){
+  const cv=window.cv,src=cv.imread(processCanvas),gray=new cv.Mat(),blur=new cv.Mat(),edges=new cv.Mat(),contours=new cv.MatVector(),hier=new cv.Mat();
+  let best=null,bestArea=0;
+  try{
+    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);cv.Canny(blur,edges,55,150);cv.dilate(edges,edges,cv.Mat.ones(3,3,cv.CV_8U));cv.findContours(edges,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    const frameArea=processCanvas.width*processCanvas.height;
+    for(let i=0;i<contours.size();i++){
+      const c=contours.get(i),area=cv.contourArea(c);if(area<frameArea*.018||area>frameArea*.35){c.delete();continue}
+      const peri=cv.arcLength(c,true),approx=new cv.Mat();cv.approxPolyDP(c,approx,.025*peri,true);
+      if(approx.rows===4&&cv.isContourConvex(approx)){
+        const pts=[];for(let j=0;j<4;j++)pts.push({x:approx.intPtr(j,0)[0],y:approx.intPtr(j,0)[1]});
+        const q=orderQuad(pts),w=(dist(q[0],q[1])+dist(q[3],q[2]))/2,h=(dist(q[0],q[3])+dist(q[1],q[2]))/2,ratio=w/h;
+        if(ratio>1.38&&ratio<1.82&&area>bestArea){best={points:q,width:w,height:h,area};bestArea=area}
+      }
+      approx.delete();c.delete();
+    }
+  }finally{src.delete();gray.delete();blur.delete();edges.delete();contours.delete();hier.delete()}
+  card=best;
+}
+function calculate(){
+  if(!face||!card)return null;
+  const scale=CARD_MM/card.width,total=dist(face.left,face.right)*scale;
+  const right=Math.abs(face.nose.x-face.left.x)*scale,left=Math.abs(face.right.x-face.nose.x)*scale;
+  if(total<50||total>80||right<24||right>42||left<24||left>42)return null;
+  const tilt=Math.abs(face.left.y-face.right.y)/dist(face.left,face.right);
+  const cardTilt=Math.abs(card.points[0].y-card.points[1].y)/card.width;
+  if(tilt>.08||cardTilt>.16)return null;
+  return{total,right,left};
+}
+function draw(result){
+  ctx.clearRect(0,0,overlay.width,overlay.height);ctx.lineWidth=Math.max(3,overlay.width/250);ctx.font=`700 ${Math.max(20,overlay.width/25)}px system-ui`;ctx.textAlign='center';
+  if(card){const q=card.points.map(mapPoint);ctx.strokeStyle='#fbbf24';ctx.beginPath();q.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke()}
+  if(face){
+    const a=mapPoint(face.left),b=mapPoint(face.right);ctx.strokeStyle=result?'#22c55e':'#ef4444';ctx.fillStyle=ctx.strokeStyle;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();[a,b].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill()});
+    if(result){const m={x:(a.x+b.x)/2,y:(a.y+b.y)/2};ctx.fillStyle='#07110cdd';const text=`${result.total.toFixed(1)} mm`,tw=ctx.measureText(text).width;ctx.fillRect(m.x-tw/2-10,m.y-44,tw+20,34);ctx.fillStyle='#fff';ctx.fillText(text,m.x,m.y-18)}
+  }
+}
+function updateUi(result){
+  if(result){
+    $('pd').textContent=result.total.toFixed(1);$('rightPd').textContent=result.right.toFixed(1);$('leftPd').textContent=result.left.toFixed(1);$('quality').textContent='Stabil mérés keresése…';
+    recent.push({...result,t:performance.now()});recent=recent.filter(x=>performance.now()-x.t<1800);
+    if(recent.length>=8){
+      const vals=recent.map(x=>x.total),spread=Math.max(...vals)-Math.min(...vals);
+      if(spread<=1.2){
+        const stable={total:median(vals),right:median(recent.map(x=>x.right)),left:median(recent.map(x=>x.left))};
+        $('quality').textContent='Mérés stabil';
+        if(Date.now()-lastAccepted>3500){samples.push(stable);samples=samples.slice(-30);localStorage.setItem(STORE,JSON.stringify(samples));lastAccepted=Date.now();beep();renderAverage()}
+      }
+    }
+  }else{
+    $('pd').textContent='–';$('rightPd').textContent='–';$('leftPd').textContent='–';recent=[];
+    if(!face&&!card)$('quality').textContent='Arc és bankkártya keresése';else if(!face)$('quality').textContent='Nézz szemből a kamerába';else if(!card)$('quality').textContent='A bankkártya nem látható';else $('quality').textContent='Tartsd egyenesen a fejed és a kártyát';
+  }
+}
+async function loop(now){
+  if(!running)return;resize();if(video.readyState>=2){drawVideoCover();if(now-lastFace>90){detectFace(now);lastFace=now}if(now-lastCard>180){detectCard();lastCard=now}const result=calculate();draw(result);updateUi(result)}requestAnimationFrame(loop)
+}
+
+$('start').addEventListener('click',start);$('stop').addEventListener('click',()=>stop());$('flip').addEventListener('click',flip);
+$('clear').addEventListener('click',()=>{samples=[];localStorage.removeItem(STORE);renderAverage()});
+window.addEventListener('beforeunload',()=>stop(false));loadSamples();
