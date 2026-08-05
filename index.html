@@ -13,22 +13,17 @@
     <div class="viewer">
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
-      <div class="topbar">
-        <strong>PD Meter</strong>
-        <button id="flip" class="icon" disabled aria-label="Kamera váltása">↺</button>
-      </div>
-      <div id="guide" class="guide">
-        <div class="face-ring"></div>
-        <div class="card-guide">BANKKÁRTYA</div>
-      </div>
+      <div class="topbar"><strong>PD Meter</strong><button id="flip" class="icon" disabled aria-label="Kamera váltása">↺</button></div>
+      <div class="guide"><div class="face-ring"></div><div class="card-guide">BANKKÁRTYA</div></div>
       <div id="message" class="message">Nyomd meg az indítást, majd nézz a kamerába egy bankkártyával az arcod mellett.</div>
 
       <div id="loader" class="loader hidden" role="status" aria-live="polite">
         <div class="spinner"></div>
         <strong id="loaderTitle">Felismerők előkészítése</strong>
         <span id="loaderStep">Indítás…</span>
-        <div class="progress"><i id="progressBar"></i></div>
-        <small id="progressValue">0%</small>
+        <small id="loaderDetail">A kamera közben már működik. Az első indítás hosszabb lehet.</small>
+        <div class="progress indeterminate"><i id="progressBar"></i></div>
+        <small id="loaderElapsed">Eltelt idő: 0 mp</small>
       </div>
 
       <section class="readout">
@@ -42,11 +37,10 @@
     </div>
     <details class="info">
       <summary>Használat és pontosság</summary>
-      <p>Tarts szabványos, 85,60 mm széles bankkártyát közvetlenül az arcod mellé, a szemeiddel azonos síkban. Nézz egyenesen a kamerába. A mérés automatikusan indul, amikor az arc és a kártya egyszerre stabilan látszik.</p>
+      <p>Tarts szabványos, 85,60 mm széles bankkártyát közvetlenül az arcod mellé, a szemeiddel azonos síkban. Nézz egyenesen a kamerába.</p>
       <button id="clear">Mentett átlag törlése</button>
     </details>
   </main>
-  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
