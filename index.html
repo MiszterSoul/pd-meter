@@ -12,10 +12,7 @@
 <body>
   <main class="shell">
     <header>
-      <div>
-        <p class="eyebrow">Helyi képfeldolgozás</p>
-        <h1>Pupillatávolság-mérő</h1>
-      </div>
+      <div><p class="eyebrow">Helyi képfeldolgozás</p><h1>Pupillatávolság-mérő</h1></div>
       <span class="privacy">A kép nem hagyja el az eszközt</span>
     </header>
 
@@ -24,7 +21,7 @@
       <ol>
         <li>Tarts szabványos bankkártyát a homlokodhoz vagy az arcod mellé, a szemek síkjában.</li>
         <li>Nézz egyenesen a kamerába, és készíts képet jó fényben.</li>
-        <li>Jelöld meg a kártya négy sarkát. A pupillapontokat ellenőrizd és szükség esetén húzd a helyükre.</li>
+        <li>Jelöld meg a kártya négy sarkát. A pupillapontokat ellenőrizd, és szükség esetén húzd a helyükre.</li>
       </ol>
       <p class="note">A mérés tájékoztató jellegű. Progresszív, prizmatikus vagy erős dioptriájú lencséhez optikai centrálás szükséges.</p>
     </section>
@@ -32,6 +29,7 @@
     <section class="card camera-card">
       <div class="toolbar">
         <button id="startCamera" class="primary">Kamera indítása</button>
+        <button id="stopCamera" disabled>Kamera leállítása</button>
         <button id="switchCamera" disabled>Kamera váltása</button>
         <label class="file-button">Kép feltöltése<input id="fileInput" type="file" accept="image/*"></label>
       </div>
@@ -52,10 +50,7 @@
 
     <section id="calibration" class="card hidden">
       <div class="section-title">
-        <div>
-          <p class="eyebrow">1. lépés</p>
-          <h2>Bankkártya kalibráció</h2>
-        </div>
+        <div><p class="eyebrow">1. lépés</p><h2>Bankkártya kalibráció</h2></div>
         <button id="resetCard">Pontok törlése</button>
       </div>
       <p>Koppints sorrendben a kártya négy sarkára: bal felső, jobb felső, jobb alsó, bal alsó. A pontok utána húzhatók.</p>
@@ -69,13 +64,10 @@
 
     <section id="results" class="card hidden">
       <div class="section-title">
-        <div>
-          <p class="eyebrow">2. lépés</p>
-          <h2>Eredmény</h2>
-        </div>
+        <div><p class="eyebrow">2. lépés</p><h2>Eredmény</h2></div>
         <button id="resetEyes">Automatikus pontok</button>
       </div>
-      <p>Húzd a két pupillapontot pontosan a pupillák közepére. A középvonal az orrgyök becsült helye.</p>
+      <p>Húzd a két pupillapontot pontosan a pupillák közepére. A zöld vonal és a méret azonnal követi a pontokat.</p>
 
       <div class="metrics">
         <article><span>Teljes PD</span><strong id="pdTotal">–</strong><small>mm</small></article>
@@ -83,18 +75,26 @@
         <article><span>Bal szem</span><strong id="pdLeft">–</strong><small>mm</small></article>
       </div>
 
-      <div class="quality">
-        <span>Mérési állapot</span>
-        <strong id="qualityText">Kalibráció szükséges</strong>
-      </div>
-      <p class="note">Tükörképes előlapi felvételnél a képernyő bal oldalán látható szem a saját jobb szemed.</p>
+      <div class="quality"><span>Mérési állapot</span><strong id="qualityText">Kalibráció szükséges</strong></div>
+      <p id="saveState" class="status">A megfelelő mérés automatikusan mentésre kerül.</p>
+      <p class="note">Szemből nézett képen a képernyő bal oldalán látható szem a saját jobb szemed.</p>
     </section>
 
-    <footer>
-      <p>PD Meter · nyílt forrású, kliensoldali mérőeszköz</p>
-    </footer>
-  </main>
+    <section class="card">
+      <div class="section-title">
+        <div><p class="eyebrow">Korábbi mérések</p><h2>Átlag</h2></div>
+        <button id="clearHistory">Mérések törlése</button>
+      </div>
+      <div class="metrics">
+        <article><span>Átlagos teljes PD</span><strong id="avgTotal">–</strong><small>mm</small></article>
+        <article><span>Átlagos jobb</span><strong id="avgRight">–</strong><small>mm</small></article>
+        <article><span>Átlagos bal</span><strong id="avgLeft">–</strong><small>mm</small></article>
+      </div>
+      <p id="historyState" class="status">Nincs mentett mérés.</p>
+    </section>
 
+    <footer><p>PD Meter · nyílt forrású, kliensoldali mérőeszköz</p></footer>
+  </main>
   <script type="module" src="app.js"></script>
 </body>
 </html>
