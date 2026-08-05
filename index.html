@@ -22,6 +22,15 @@
         <div class="card-guide">BANKKÁRTYA</div>
       </div>
       <div id="message" class="message">Nyomd meg az indítást, majd nézz a kamerába egy bankkártyával az arcod mellett.</div>
+
+      <div id="loader" class="loader hidden" role="status" aria-live="polite">
+        <div class="spinner"></div>
+        <strong id="loaderTitle">Felismerők előkészítése</strong>
+        <span id="loaderStep">Indítás…</span>
+        <div class="progress"><i id="progressBar"></i></div>
+        <small id="progressValue">0%</small>
+      </div>
+
       <section class="readout">
         <div class="pd"><span>PD</span><strong id="pd">–</strong><small>mm</small></div>
         <div class="split"><span>jobb <b id="rightPd">–</b></span><span>bal <b id="leftPd">–</b></span></div>
